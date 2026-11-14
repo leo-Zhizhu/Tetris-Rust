@@ -473,7 +473,7 @@ sequenceDiagram
             P->>P: Leave original pose unchanged
         end
     end
-    P-->>G: true if committed; false if all candidates failed
+    P-->>G: true if committed, false if all candidates failed
 ```
 
 For the README's Normal `0 -> R` example, the ordered candidates are `(0,0)`, `(-1,0)`, `(-1,1)`, `(0,-2)`, `(-1,-2)`. The first valid one wins.
