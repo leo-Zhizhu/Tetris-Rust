@@ -86,15 +86,6 @@ specify what you need to put in this below as well.
 (2), (3), and (4) will be due Nov 18 and will possibly contain edits to your work
 submitted for (1).
 
-### AI Policy
-As a reminder, you must not use LLMs to generate any part of your submission,
-including code, comments, or writing in your design doc. Asking an LLM how to
-implement something and using that as inspiration violates this policy.
-
-We discourage, but begrudgingly allow the use of LLMs for seeking out
-documentation or descriptions of high level concepts. Though, please seek 
-official docs or reach out to a TA through OH or Ed first!
-
 ## Part 1: Single Player Tetris
 You will implement a binary which simulates a game of Tetris given a list of
 inputs describing what a player's action on every frame of gameplay.
