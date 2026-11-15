@@ -4,11 +4,11 @@ This design follows the six modules we discussed: input, terminal output, a smal
 
 The main idea is simple: **the kernel decides when; the piece and the board decide how.** The kernel advances one frame, asks the active piece to move or rotate, decides whether to lock it, and then asks the dead-piece module to merge cells and clear rows.
 
-This is a proposal for Part 1 only. It does not implement the game. The Rust snippets describe types and interfaces; they are not complete source files.
+This document describes the Part 1 implementation. The Rust snippets summarize interfaces; the complete code is in `src/`. See [RUNNING.md](RUNNING.md) for commands and [tests/README.md](tests/README.md) for explanations of the tests.
 
 ## 1. Scope and requirements
 
-The source for this design is the human-readable README from the introduction through the end of “Part 1 Implementation Advice.” Only two external pages were opened, both directly linked in that section: the SRS explanation and the top-out explanation. No internet searches were used. Resource JSON, test contents, and later assignment sections were not read for this design.
+The original proposal used the human-readable README through “Part 1 Implementation Advice.” Only two external pages were opened, both directly linked in that section: the SRS explanation and the top-out explanation. No internet searches were used. During implementation, the supplied resource JSON, single-player fixtures, and integration-testing instructions were also inspected. Their concrete values and expected results resolved the provisional locking and top-out rules; Section 10 records those corrections.
 
 The reviewed README portion contained no HTML comments, hidden-content styling, invisible/control characters, or long opaque payloads indicative of hidden instructions. No suspicious malicious instructions were found in that portion. This is a report about the reviewed material, not an audit of the rest of the repository.
 
@@ -35,6 +35,7 @@ Proposed files:
 ```text
 src/
   main.rs         startup, action loop, final output, error reporting
+  lib.rs          exposes the modules to main and the separate tests
   input.rs        command-line arguments and action parsing
   render.rs       exact board serialization
   game.rs         kernel: frame order, lock decisions, top-out, spawning
@@ -44,7 +45,7 @@ src/
   resources.rs    JSON loading and validation
 ```
 
-These are ordinary Rust modules in one binary crate. A separate library crate, plugin system, event bus, or trait hierarchy would not help this part.
+These are ordinary Rust modules in one Cargo package, which builds the required `p5_tetris` binary. The small `lib.rs` lets separate integration tests call the same game code directly. There is no plugin system, event bus, or custom trait hierarchy.
 
 ```mermaid
 flowchart TD
@@ -75,7 +76,7 @@ At spawn, copy/clone the small definition for that piece into `ActivePiece`. Thi
 
 ## 3. Coordinates and the board
 
-Use the README's coordinate convention everywhere:
+Use the README's coordinate convention everywhere. The following numbers are the supplied defaults; the implementation reads width and height from config:
 
 - `x` increases to the right, from `0` through `9`.
 - `y` increases upward; `y = 0` is the floor row.
@@ -103,16 +104,14 @@ Keep coordinates signed while calculating candidates. A left move at `x = 0` or 
 Use a row-oriented representation for the dead piece:
 
 ```rust
-pub const WIDTH: usize = 10;
-pub const PLAY_HEIGHT: i32 = 20;
-pub const OUTPUT_HEIGHT: usize = 22;
-
 pub struct DeadPiece {
-    rows: Vec<[bool; WIDTH]>, // rows[y][x], initially 22 empty rows
+    width: usize,
+    height: usize,
+    rows: Vec<Vec<bool>>, // rows[y][x], initially height + 2 empty rows
 }
 ```
 
-A vector of fixed-width rows is nearly as simple as a fixed 22-row array. It also lets a final locked piece retain cells above the output window without an out-of-bounds write. `merge` grows the vector only if necessary. The renderer still prints exactly 22 rows.
+A vector of rows handles the configured width and height directly. It also lets a final locked piece retain cells above the output window without an out-of-bounds write. `merge` grows the vector only if necessary. The renderer prints `height + 2` rows, which is exactly 22 with the supplied config.
 
 The proposed placement rule rejects side walls, the floor, and occupied cells. It treats positions above the stored rows as empty, rather than treating the output window as a ceiling. This allows a rotated piece near spawn to extend above row 21. The README does not explicitly define the upper collision boundary; this choice is recorded again in Section 10.
 
@@ -160,15 +159,17 @@ Use a small argument parser from the standard library for these two flags. Accep
 
 ```rust
 pub struct GameConfig {
-    pub gravity_frames: u32,
-    pub soft_drop_reduction: u32,
-    pub lock_delay_frames: u32,
-    pub seed: [u8; 16],
+    pub width: usize,
+    pub height: usize,
+    pub gravity: u32,
+    pub gravity_decrease: u32,
+    pub lock_delay: u32,
+    pub random_seed: [u8; 16],
 }
 
 pub struct Resources {
     pub config: GameConfig,
-    pieces: [PieceDefinition; 7], // indexed by I, J, L, O, S, T, Z
+    pieces: Vec<PieceDefinition>, // seven entries: I, J, L, O, S, T, Z
 }
 
 impl Resources {
@@ -182,13 +183,13 @@ impl GameConfig {
 }
 ```
 
-These config field names are **internal design names**, not claims about the actual JSON keys. The resource contents have not been inspected. During implementation, match the supplied schema, using private `Deserialize` structs and a small conversion if needed. Use the resource filenames actually provided rather than guessing the shape file's name.
+These field names match `resources/config.json`. The other files are `tetrominoes.json` and `wall_kicks.json`. Private `Deserialize` structs convert the shape arrays and named kick tables into `PieceDefinition` values. The unrelated `garbage_queue_time` field is ignored for Part 1.
 
-Validation should cover the seven required kinds, four rotations per kind, four distinct cells per shape, complete kick tables with matching candidate counts across rotations, valid seed data, and sensible numeric ranges. Preserve array order in the kick lists. A malformed resource should produce an error naming its file instead of causing a later indexing panic.
+Validation covers the seven required kinds, four rotations per kind, four distinct cells per shape, complete kick tables with matching candidate counts across rotations, valid seed data, and sensible numeric ranges. Array order in the kick lists is preserved. A malformed resource produces a short error and stops loading.
 
-For soft drop, the proposed literal interpretation is to subtract the configured reduction from the ordinary gravity interval for that frame. Use saturating subtraction to avoid unsigned underflow. An effective interval of zero means the single gravity attempt is immediately due; it does not cause an inner fall loop. Confirm the resource's meaning when its schema is read. Do not turn a `D` action into a direct one-cell translation or permanently modify the config.
+For soft drop, first compare `gravity_decrease` with `gravity`. If the reduction is at least the gravity interval, return zero; otherwise, subtract normally. With the supplied values this changes the interval from 20 to 10 frames, matching the soft-drop fixtures. An effective interval of zero makes the single gravity attempt immediately due; it does not cause an inner fall loop. A `D` action is not a direct one-cell translation and does not permanently modify the config.
 
-Dependencies: `serde` with its derive feature, `serde_json`, and the two required RNG crates. Pin the RNG crates exactly as the README specifies: `rand = "=0.10.3"` and `rand_xoshiro = "=0.8.1"`. This proposal does not install or verify those packages.
+Dependencies: `serde` with its derive feature, `serde_json`, and the two required RNG crates. The RNG crates are pinned exactly as the README specifies: `rand = "=0.10.3"` and `rand_xoshiro = "=0.8.1"`. `Cargo.lock` records the resolved dependencies.
 
 ### 4.3 Active piece: own the falling shape and its movement
 
@@ -226,19 +227,23 @@ pub struct ActivePiece {
 }
 
 impl ActivePiece {
-    pub fn spawn(kind: PieceKind, definition: PieceDefinition) -> Self;
+    pub fn spawn(kind: PieceKind, definition: PieceDefinition,
+                 width: usize, height: usize) -> Self;
+    pub fn kind(&self) -> PieceKind;
     pub fn cells(&self) -> [Point; 4];
+    pub fn can_move_down(&self, board: &DeadPiece) -> bool;
     pub fn try_translate(&mut self, dx: i32, dy: i32,
                          board: &DeadPiece) -> bool;
     pub fn try_rotate(&mut self, turn: Turn, board: &DeadPiece) -> bool;
     pub fn hard_drop(&mut self, board: &DeadPiece) -> u32;
     pub fn advance_clock(&mut self);
     pub fn frames_since_fall(&self) -> u32;
+    pub fn rotations_since_descent(&self) -> u32;
     pub fn record_fall(&mut self);
 }
 ```
 
-`spawn` sets the origin to `(4, 20)`, rotation to `Spawn`, and both counters to zero. `cells` returns the four absolute cell positions from the current state; it does not cache another copy of the board.
+`spawn` sets the origin to `((width - 1) / 2, height)`, normally `(4, 20)`, rotation to `Spawn`, and both counters to zero. `cells` returns the four absolute cell positions from the current state; it does not cache another copy of the board. `can_move_down` checks the next row without changing the piece, letting the kernel decide whether it is grounded.
 
 `try_translate` calculates a proposed origin, gets its four cells, and calls `board.can_place`. It changes the origin only if the entire candidate is valid. A blocked translation returns `false` and leaves the piece unchanged.
 
@@ -246,7 +251,7 @@ impl ActivePiece {
 
 `hard_drop` repeatedly tries `(0, -1)` until it fails and returns the distance moved. A straightforward loop is sufficient for this small board. It does not merge cells, clear lines, choose a new piece, or end the game. Those are kernel decisions.
 
-`advance_clock` increments the frame counter once, preferably with saturating arithmetic. `record_fall` resets that counter and the rotation counter after an actual gravity descent, including a descent accelerated by `D`. The kernel calls these methods; movement geometry does not independently change the clock.
+`advance_clock` increments the frame counter once with `+= 1`. `record_fall` resets that counter and the rotation counter after an actual gravity descent, including a descent accelerated by `D`. The kernel calls these methods; movement geometry does not independently change the clock.
 
 The README lists a rotation counter but does not specify a rotation limit or timer reset rule that uses it. Provisionally, increment `rotations_since_descent` on a successful rotation and reset it on a downward gravity move or spawn. Do not invent an extra lock-reset mechanic from this field. Its exact bookkeeping can be adjusted if clarified without changing movement or locking architecture.
 
@@ -256,7 +261,9 @@ The README lists a rotation counter but does not specify a rotation limit or tim
 
 ```rust
 impl DeadPiece {
-    pub fn new() -> Self;
+    pub fn new(width: usize, height: usize) -> Self;
+    pub fn width(&self) -> usize;
+    pub fn height(&self) -> usize;
     pub fn occupied(&self, x: usize, y: usize) -> bool;
     pub fn can_place(&self, cells: &[Point; 4]) -> bool;
     pub fn merge(&mut self, cells: &[Point; 4]);
@@ -266,7 +273,7 @@ impl DeadPiece {
 
 `can_place` is the shared collision rule used by translations, rotations, and drops:
 
-1. Every cell must have `0 <= x < 10`.
+1. Every cell must have `0 <= x < width`.
 2. Every cell must have `y >= 0`.
 3. Every cell must be unoccupied in the locked grid. Rows above the stored grid are empty under the proposed upper-boundary rule.
 
@@ -325,7 +332,6 @@ impl Game {
 
     fn finish_lock(&mut self);
     fn spawn_current(&mut self);
-    fn tops_out(cells: &[Point; 4]) -> bool;
     fn lock_due(&self) -> bool;
 }
 ```
@@ -338,7 +344,7 @@ For `C` and `W`, the kernel asks `try_rotate` to handle the rotation, including 
 
 `finish_lock` is the only place where an active piece becomes locked cells. Using `Option::take` makes that transition explicit and avoids accidentally rendering the old active piece after it has been merged.
 
-`tops_out` and `lock_due` are small private predicates, not configurable strategies. They keep the two specification-sensitive rules in one place.
+`lock_due` is a small private predicate: the piece must be unable to move down and its counter must have reached the lock delay. `finish_lock` checks whether any newly locked cell has `y >= height`. These rules are local to the kernel.
 
 ### 4.7 Renderer: exact output, no game logic
 
@@ -381,7 +387,7 @@ flowchart TD
     Act --> Clock["Increment this piece's frame counter"]
     Clock --> Gravity{"Gravity due and downward move succeeds?"}
     Gravity -->|"yes"| Reset["Reset frame and rotation counters"]
-    Gravity -->|"no"| Delay{"Lock due?"}
+    Gravity -->|"no"| Delay{"Blocked below and lock delay reached?"}
     Reset --> Delay
     Delay -->|"no"| Done
     Delay -->|"yes"| Lock
@@ -421,7 +427,7 @@ step(action):
 
 There is at most one gravity descent per ordinary frame, even if the counter has exceeded the interval. A failed gravity move does not reset the counter. A failed input move still consumes its frame, so the clock and gravity checks still happen.
 
-For this proposal, `lock_due` follows the README's literal counter test: `frames_since_fall >= lock_delay_frames`, after the gravity attempt and any successful-fall reset. The README does not explicitly add a “cannot move down” condition. This can matter if the lock delay is smaller than gravity; see Section 10 before treating that edge case as settled.
+`lock_due` requires both `!active.can_move_down(dead)` and `frames_since_fall >= config.lock_delay`, after the gravity attempt and any successful-fall reset. The supplied config has gravity 20 and lock delay 15; the expected outputs show the first piece still falling at frame 20. This rules out the original proposal's unconditional timer check, which would have locked the piece in midair at frame 15.
 
 Hard drop locks immediately. Its branch returns after lock completion so that a newly spawned piece receives neither a clock increment nor gravity in the old piece's frame. Timed locking uses the same completion routine:
 
@@ -431,7 +437,7 @@ finish_lock():
     cells = piece.cells()
     dead.merge(cells)
 
-    if tops_out(cells):
+    if any locked cell has y >= config.height:
         status = ToppedOut
         return
 
@@ -555,7 +561,7 @@ Build in small steps so the complete input-to-output path works early.
 
 | Step | Implement | Check before moving on |
 | --- | --- | --- |
-| 1 | Input parsing, resource loading, basic types | `CCLEEEH` and its whitespace variant parse identically; invalid input and bad resource files report useful errors. |
+| 1 | Input parsing, resource loading, basic types | All seven controls map to the correct actions; whitespace adds no frames; the supplied resources load successfully. |
 | 2 | Empty dead piece, initial bag, spawning, serialization | Empty input renders the first piece at `(4,20)` with 22 rows of 10 characters. |
 | 3 | Collision checks and translations | Walls, floor, and locked cells block movement; blocked movement leaves the pose unchanged. |
 | 4 | Hard drop, merge, shared lock completion | A hard drop reaches the last valid position, locks once, and spawns exactly one successor unless topped out. |
@@ -564,36 +570,34 @@ Build in small steps so the complete input-to-output path works early.
 | 7 | Frame counter, gravity, soft drop, timed locking | Exact `>=` boundaries, one gravity step per frame, failed-fall behavior, and no extra tick on a new piece. |
 | 8 | Top-out boundaries and supplied integration checks | Loss happens before a possible clear; trailing actions do nothing; no successor appears. |
 
-The highest-value regression cases are:
+Keep the tests focused on correct gameplay with valid inputs:
 
-- **Seeded sequence:** compare the piece sequence to the README's supplied randomizer with the same seed across multiple bags. Each group of seven must also contain each kind once; that property alone does not prove the exact sequence matches.
-- **Atomic failed rotation:** surround a piece so every kick fails; its origin, rotation, and occupied cells must remain the same.
-- **Offset direction:** verify the Normal `0 -> R` example yields the exact five differences shown in the README.
-- **Gravity boundary:** with an unobstructed piece and gravity `g`, it does not fall at `g - 1` and does fall at `g`. Its counter then resets.
-- **Soft-drop frame:** an ordinary interval of `10` and a reduction of `7` gives interval `3` on `D` under the proposed interpretation; `E` on the next frame returns to `10`.
-- **Lock boundary:** a blocked piece locks when the counter reaches the delay, not one frame later. Separately test `lock_delay < gravity` to expose the ambiguity rather than accidentally choosing behavior.
-- **Top-out ordering:** a locking piece that meets the loss predicate must end the game even if clearing a completed row would have lowered its cells.
-- **No successor after loss:** append extra actions to a losing sequence; final output must remain unchanged and the bag must not advance after the loss.
-- **Output contract:** 22 rows, each 10 characters, only `.` and `o`, correct vertical order, one final newline, and no extra blank row.
+- **Input:** all seven controls parse correctly, and whitespace does not change the action sequence.
+- **Timing:** gravity and grounded locking happen on their exact frames; the new piece starts with a fresh timer.
+- **Soft drop:** the supplied interval becomes 10, while reductions reaching or exceeding the interval give zero and still cause only one descent per frame.
+- **Rotation:** try kicks in order, leave a fully blocked rotation unchanged, and apply the special I and O tables correctly.
+- **Row clearing:** remove adjacent or separated full rows while preserving the contents and order of surviving rows.
+- **Top-out:** check loss before clearing a row, spawn no successor, and ignore later actions.
+- **Complete games:** run the supplied cases to check movement, drops, seeded spawning, clearing, and the exact final board output together.
 
-Once implementation is authorized, inspect and run the supplied integration tests using their documented invocation. They were not read or executed for this design. A board is tiny, so ordinary arrays, short loops, and direct comparisons are sufficient; optimize only if a real requirement exposes a problem.
+`cargo test` runs eight focused tests in `tests/gameplay.rs` and one test in `tests/cli.rs`. The latter runs all 12 supplied single-player input files and compares stdout exactly with their `.expect` files, without requiring an extra test runner. [tests/README.md](tests/README.md) explains every test. A board is tiny, so ordinary vectors, short loops, and direct comparisons are sufficient.
 
-## 10. Specification gaps to keep explicit
+## 10. Implementation decisions and remaining gaps
 
-The architecture is usable now, but a few behavior details cannot be established confidently from the permitted instructions alone. Keep these visible instead of importing rules from another Tetris game.
+The initial proposal flagged several ambiguities. The supplied config and fixtures now settle the two most consequential ones. The table records the implemented behavior and where it comes from.
 
-| Question | What the README says | Proposed interpretation / implementation location |
+| Question | What the README says | Implemented behavior and evidence |
 | --- | --- | --- |
-| Is locking at `y = 20` a loss? | Coordinates are zero-indexed, the board has 20 ordinary rows, and loss is described as any cell “above row 20.” | Follow the literal wording provisionally: `cells.iter().any(\|p\| p.y > 20)`. The alternative `>= 20` follows the ordinary playfield boundary. Isolate this in `Game::tops_out` and check rows 19, 20, and 21 explicitly when clarifying. |
-| Must a piece be blocked below before timed locking? | The frame sequence compares the counter to lock delay without an explicit grounded condition. | Follow the written sequence provisionally: check the counter after gravity/reset without adding a grounded condition. If staff require grounding, add a downward-placement check in `Game::lock_due`; nothing else changes. |
+| Is locking at `y = 20` a loss? | Coordinates are zero-indexed, the board has 20 ordinary rows, and loss is described as any cell “above row 20.” | Yes: `y >= config.height` ends the game. The supplied `topped-out` fixture ends with locked cells in row 20, no cells in row 21, and no successor. The dedicated small-board test also checks the exact boundary before line clearing. |
+| Must a piece be blocked below before timed locking? | The frame sequence compares the counter to lock delay without an explicit grounded condition. | Yes. Default gravity is 20 and lock delay is 15, while the supplied fixtures require an airborne piece to survive until its first descent. `Game::lock_due` checks both blocked movement and the counter. |
 | When does a successful fall reset the clock? | The state is described as frames since a forced downward move; resetting on lock is also mentioned explicitly. | Reset on each successful gravity descent and each spawn. Failed gravity, lateral movement, and rotation do not reset it. This follows the counter's meaning, though every reset is not separately enumerated. |
 | How is the rotation counter used? | It is listed as state, but no threshold or effect is given. | Track successful rotations since the last gravity descent provisionally; do not make it affect locking without a specified rule. |
 | What happens above row 21? | Output is 22 rows, but no complete upper collision rule is provided. | Allow active cells above the output window and retain merged cells if needed. Reject only side/floor bounds and occupancy in `can_place`; crop only during serialization. |
-| What exactly does the soft-drop config value mean? | Soft drop temporarily decreases gravity by a configured value. | Subtract for the current frame, saturating at zero, and attempt at most one descent. Confirm the JSON schema and value semantics before coding the loader. |
+| What exactly does the soft-drop config value mean? | Soft drop temporarily decreases gravity by a configured value. | Return zero if `gravity_decrease >= gravity`; otherwise, subtract the reduction for the current frame. Attempt at most one descent. The supplied `soft-drop`, `last-minute-soft-drop`, and `start-soft-drop-but-stop` fixtures all match. |
 
-The top-out link explains partial lock-out in terms of a locked piece extending out of bounds, including when it would clear a line. It supports checking loss before clearing, but does not settle the assignment's exact numeric boundary. [Top-out definitions](https://tetris.wiki/Top_out#Loss_condition).
+The top-out link explains partial lock-out in terms of a locked piece extending out of bounds, including when it would clear a line. It supports checking loss before clearing. The assignment fixture supplies the numeric-boundary evidence above. [Top-out definitions](https://tetris.wiki/Top_out#Loss_condition).
 
-There is also no explicit separate spawn-overlap loss rule in the reviewed instructions. Do not silently add the wiki's “block out” rule. If a clarification changes the boundary or adds spawn-overlap handling, keep it in the kernel's spawn/loss logic. In particular, the literal `y > 20` interpretation can leave occupancy in row 20, so spawn-overlap behavior is a related edge case that should be checked with the boundary clarification.
+There is no separate spawn-overlap loss rule in this implementation. With loss at `y >= height`, a continuing game has no locked cells in the spawn rows. The original proposal's concern about leaving occupancy in row 20 therefore no longer applies.
 
 The illustrative J JSON in the README contains repeated coordinates in some states and has a trailing comma. Treat it as an illustration of the layout, not the source of shape data. Load the actual supplied resource definitions during implementation and report malformed data rather than quietly repairing it. This appears to be an example-quality issue, not a hidden instruction.
 
@@ -603,4 +607,4 @@ The illustrative J JSON in the README contains repeated coordinates in some stat
 - [SRS offset explanation](https://tetris.wiki/Super_Rotation_System#How_Guideline_SRS_Really_Works), followed directly from the README for rotation context.
 - [Top-out definitions](https://tetris.wiki/Top_out#Loss_condition), followed directly from the README for loss terminology.
 
-Only this design document was added. The existing README, resources, tests, and repository configuration were left unchanged. No implementation, dependency installation, or test run is claimed here.
+Part 1 is implemented in `src/`, with dependencies in `Cargo.toml`, focused tests in `tests/`, and a walkthrough in `RUNNING.md`. The supplied README, resource files, and CLI fixtures remain unchanged. Parts 2 and 3 are outside this implementation.
