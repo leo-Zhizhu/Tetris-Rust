@@ -2,7 +2,7 @@
 
 Run `cargo test` from the project root. There are **9 tests**: eight focused gameplay tests and one CLI test that runs all **12 supplied single-player cases**.
 
-The suite focuses on correct gameplay with valid inputs. Each test function has a purpose comment, and the setup/action/assertion blocks have comments explaining what they establish. The supplied resources and expected-output files are never modified.
+The suite focuses on correct gameplay with valid inputs. The descriptions below explain what each test checks. The supplied resources and expected-output files are never modified.
 
 ## Focused gameplay tests
 
@@ -14,19 +14,19 @@ Expected summary: `test result: ok. 8 passed; 0 failed`.
 
 | Test | Why it stays |
 | --- | --- |
-| `input_actions_and_whitespace_are_parsed_correctly` | Checks the meaning of all seven controls and ensures whitespace does not add frames. |
-| `gravity_and_lock_delay_use_the_correct_frames` | Checks no premature airborne lock, descent exactly on frame 20, locking exactly on frame 415, and the successor's reset timer. |
-| `soft_drop_handles_normal_and_zero_intervals` | Checks the normal 20-to-10 gravity reduction and accepted reductions that reach zero. Prevents the unsigned-subtraction crash found during review; zero still permits only one descent per frame. |
-| `rotation_uses_the_first_valid_floor_kick` | Checks that rotation tries candidates in order and accepts the first one that fits above the floor. |
-| `blocked_rotation_keeps_the_original_piece` | Checks an ordinary blocked rotation: when no kick works, the original pose and rotation counter remain unchanged. |
+| `input_and_whitespace` | Checks the meaning of all seven controls and ensures whitespace does not add frames. |
+| `gravity_and_lock` | Checks no premature airborne lock, descent exactly on frame 20, locking exactly on frame 415, and the successor's reset timer. |
+| `soft_drop` | Checks the normal 20-to-10 gravity reduction and accepted reductions that reach zero. Prevents the unsigned-subtraction crash found during review; zero still permits only one descent per frame. |
+| `rotation` | Checks that rotation tries candidates in order and accepts the first one that fits above the floor. |
+| `blocked_rotation` | Checks an ordinary blocked rotation: when no kick works, the original pose and rotation counter remain unchanged. |
 | `i_and_o_pieces_use_their_own_kick_tables` | Checks I's origin correction and O's unchanged visible square through all four rotations. |
-| `full_rows_clear_without_reordering_survivors` | Checks adjacent and separated full rows, the positions of surviving cells, the empty rows at the top, and doing nothing when no full rows remain. |
-| `top_out_precedes_line_clearing_and_freezes_the_game` | Checks simultaneous line completion and top-out on a small board: loss takes priority, no successor spawns, and later moves cannot change the board. |
+| `rows_clear` | Checks adjacent and separated full rows, the positions of surviving cells, the empty rows at the top, and doing nothing when no full rows remain. |
+| `top_out` | Checks simultaneous line completion and top-out on a small board: loss takes priority, no successor spawns, and later moves cannot change the board. |
 
 To run just one test:
 
 ```sh
-cargo test --test gameplay rotation_uses_the_first_valid_floor_kick
+cargo test --test gameplay rotation -- --exact
 ```
 
 Expected summary: `1 passed; 0 failed; 7 filtered out`.

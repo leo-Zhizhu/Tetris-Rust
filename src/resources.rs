@@ -1,6 +1,6 @@
-use std::{collections::HashMap, error::Error, fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::Deserialize;
 
 use crate::piece::{PieceDefinition, PieceKind, Point};
 
@@ -39,7 +39,7 @@ struct RawPiece {
     wall_kick: String,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Deserialize)]
 struct RawKicks {
     o: Vec<[i32; 2]>,
     r: Vec<[i32; 2]>,
@@ -47,43 +47,39 @@ struct RawKicks {
     l: Vec<[i32; 2]>,
 }
 
-fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, Box<dyn Error>> {
-    let text = fs::read_to_string(path).map_err(|_| "cannot read resource file")?;
-    serde_json::from_str(&text).map_err(|_| "invalid resource JSON".into())
-}
-
 impl Resources {
-    pub fn load(dir: &Path) -> Result<Self, Box<dyn Error>> {
-        let config: GameConfig = read_json(&dir.join("config.json"))?;
-        if config.width == 0 || config.height == 0 || config.gravity == 0 || config.lock_delay == 0
-        {
-            return Err("invalid config".into());
-        }
-        let shapes: HashMap<String, RawPiece> = read_json(&dir.join("tetrominoes.json"))?;
-        let kicks: HashMap<String, RawKicks> = read_json(&dir.join("wall_kicks.json"))?;
+    pub fn load(dir: &Path) -> Self {
+        let config_text = fs::read_to_string(dir.join("config.json")).unwrap();
+        let config: GameConfig = serde_json::from_str(&config_text).unwrap();
+
+        let shapes_text = fs::read_to_string(dir.join("tetrominoes.json")).unwrap();
+        let shapes: HashMap<String, RawPiece> = serde_json::from_str(&shapes_text).unwrap();
+
+        let kicks_text = fs::read_to_string(dir.join("wall_kicks.json")).unwrap();
+        let kicks: HashMap<String, RawKicks> = serde_json::from_str(&kicks_text).unwrap();
         let mut pieces = Vec::new();
 
         for kind in PieceKind::ALL {
-            let raw = shapes.get(kind.name()).ok_or("missing piece")?;
-            let offsets = kicks
-                .get(&raw.wall_kick)
-                .ok_or("missing wall kicks")?
-                .clone();
-            let kick_offsets = [offsets.o, offsets.r, offsets.t, offsets.l].map(|list| {
-                list.into_iter()
-                    .map(|[x, y]| Point { x, y })
-                    .collect::<Vec<_>>()
-            });
-            let count = kick_offsets[0].len();
-            if count == 0 || kick_offsets.iter().any(|list| list.len() != count) {
-                return Err("invalid wall kicks".into());
+            let raw = &shapes[kind.name()];
+            let offsets = &kicks[&raw.wall_kick];
+            let lists = [&offsets.o, &offsets.r, &offsets.t, &offsets.l];
+            let mut kick_offsets = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+            for rotation in 0..4 {
+                for offset in lists[rotation] {
+                    kick_offsets[rotation].push(Point {
+                        x: offset[0],
+                        y: offset[1],
+                    });
+                }
             }
-            let states = raw.states.map(|state| state.map(|[x, y]| Point { x, y }));
-            for state in &states {
-                for index in 0..state.len() {
-                    if state[..index].contains(&state[index]) {
-                        return Err("repeated cell in piece".into());
-                    }
+
+            let mut states = [[Point { x: 0, y: 0 }; 4]; 4];
+            for rotation in 0..4 {
+                for cell in 0..4 {
+                    states[rotation][cell] = Point {
+                        x: raw.states[rotation][cell][0],
+                        y: raw.states[rotation][cell][1],
+                    };
                 }
             }
             pieces.push(PieceDefinition {
@@ -92,7 +88,7 @@ impl Resources {
             });
         }
 
-        Ok(Self { config, pieces })
+        Self { config, pieces }
     }
 
     pub fn definition(&self, kind: PieceKind) -> &PieceDefinition {

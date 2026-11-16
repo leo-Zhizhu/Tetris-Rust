@@ -10,7 +10,7 @@ use p5_tetris::{
 };
 
 fn resources() -> Resources {
-    Resources::load(Path::new("resources")).unwrap()
+    Resources::load(Path::new("resources"))
 }
 
 fn piece(kind: PieceKind) -> ActivePiece {
@@ -35,10 +35,10 @@ fn input_and_whitespace() {
         Action::HardDrop,
         Action::Wait,
     ];
-    assert_eq!(input::parse_actions(b"CWLRDHE").unwrap(), expected);
+    assert_eq!(input::parse_actions(b"CWLRDHE"), expected);
 
     assert_eq!(
-        input::parse_actions(b" C W\nL R\tD H E\n").unwrap(),
+        input::parse_actions(b" C W\nL R\tD H E\n"),
         expected
     );
 }
@@ -52,9 +52,15 @@ fn gravity_and_lock() {
     assert!(!game.is_over());
     assert_eq!(game.active().unwrap().cells(), initial);
     game.step(Action::Wait);
+    // The first piece is L. One fall moves its origin from (4, 20) to (4, 19).
     assert_eq!(
         game.active().unwrap().cells(),
-        initial.map(|p| Point { x: p.x, y: p.y - 1 })
+        [
+            Point { x: 3, y: 19 },
+            Point { x: 4, y: 19 },
+            Point { x: 5, y: 19 },
+            Point { x: 5, y: 20 },
+        ]
     );
     assert_eq!(game.active().unwrap().frames_since_fall(), 0);
 
@@ -84,11 +90,16 @@ fn soft_drop() {
         assert_eq!(data.config.gravity_for_frame(false), 20);
 
         let mut game = Game::new(data);
-        let initial = game.active().unwrap().cells();
         game.step(Action::SoftDrop);
+        // Even with a zero interval, the L moves down only one row this frame.
         assert_eq!(
             game.active().unwrap().cells(),
-            initial.map(|p| Point { x: p.x, y: p.y - 1 })
+            [
+                Point { x: 3, y: 19 },
+                Point { x: 4, y: 19 },
+                Point { x: 5, y: 19 },
+                Point { x: 5, y: 20 },
+            ]
         );
         assert_eq!(game.active().unwrap().frames_since_fall(), 0);
     }
@@ -266,7 +277,9 @@ fn top_out() {
 
     assert!(game.is_over());
     assert!(game.active().is_none());
-    assert!((0..3).all(|x| game.dead().occupied(x, 0)));
+    assert!(game.dead().occupied(0, 0));
+    assert!(game.dead().occupied(1, 0));
+    assert!(game.dead().occupied(2, 0));
     assert!(game.dead().occupied(2, 1));
 
     let final_board = render::serialize(&game);

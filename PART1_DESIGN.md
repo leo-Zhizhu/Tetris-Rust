@@ -42,7 +42,7 @@ src/
   randomizer.rs   the README's deterministic BagRandomizer
   piece.rs        active piece, shapes, rotations, candidate movement
   dead_piece.rs   locked cells, collision checks, merging, line clearing
-  resources.rs    JSON loading and validation
+  resources.rs    JSON loading and conversion
 ```
 
 These are ordinary Rust modules in one Cargo package, which builds the required `p5_tetris` binary. The small `lib.rs` lets separate integration tests call the same game code directly. There is no plugin system, event bus, or custom trait hierarchy.
@@ -51,7 +51,7 @@ These are ordinary Rust modules in one Cargo package, which builds the required 
 flowchart TD
     Files["Arguments and input file"] --> Input["input.rs: paths and Actions"]
     Input --> Main["main.rs: run the simulation"]
-    JSON["Resource JSON files"] --> Loader["resources.rs: load and validate"]
+    JSON["Resource JSON files"] --> Loader["resources.rs: load and convert"]
     Loader --> Main
     Main -->|"one Action per frame"| Kernel["game.rs: Game kernel"]
     Kernel -->|"owns and commands"| Active["piece.rs: ActivePiece"]
@@ -140,22 +140,20 @@ pub struct CliOptions {
     pub resources_dir: PathBuf,
 }
 
-pub fn parse_args(args: impl Iterator<Item = OsString>)
-    -> Result<CliOptions, Box<dyn std::error::Error>>;
+pub fn parse_args(args: impl Iterator<Item = OsString>) -> CliOptions;
 
-pub fn parse_actions(bytes: &[u8])
-    -> Result<Vec<Action>, Box<dyn std::error::Error>>;
+pub fn parse_actions(bytes: &[u8]) -> Vec<Action>;
 ```
 
-Map `C W L R D H E` to the seven variants. Skip ASCII whitespace, including newlines, spaces, tabs, and carriage returns. Reject other bytes with a useful error, including their position. Do not silently turn invalid input into `Wait`.
+Map `C W L R D H E` to the seven variants. Skip ASCII whitespace, including newlines, spaces, tabs, and carriage returns. Other bytes cause `panic!("invalid action")`.
 
 A `Vec<Action>` is sufficient for Part 1. Loading and validating the file first does not advance the simulation. Once top-out occurs, the action loop stops consuming this vector. Behavior for malformed input after a would-be top-out is not specified; whole-file validation is a deliberate simple choice for invalid files.
 
-Use a small argument parser from the standard library for these two flags. Accept either flag order; report missing values, duplicate flags, and unknown flags. `clap` is also allowed by the README, but this interface does not require it.
+Use a small argument parser from the standard library for these two flags. Accept either flag order. Read each flag's value with `unwrap()` and unwrap the two required paths at the end. Unknown flags cause `panic!("unknown argument")`. There are no extra checks for duplicate flags or values starting with `--`; repeated flags use the last supplied value. `clap` is also allowed by the README, but this interface does not require it.
 
 ### 4.2 Resources: translate JSON into usable game data
 
-`resources.rs` loads the supplied files from the requested directory and validates the resulting data before starting the game.
+`resources.rs` loads the supplied files from the requested directory and converts them into game data. It assumes the assignment resources contain valid values.
 
 ```rust
 pub struct GameConfig {
@@ -173,8 +171,7 @@ pub struct Resources {
 }
 
 impl Resources {
-    pub fn load(dir: &Path)
-        -> Result<Self, Box<dyn std::error::Error>>;
+    pub fn load(dir: &Path) -> Self;
     pub fn definition(&self, kind: PieceKind) -> &PieceDefinition;
 }
 
@@ -185,7 +182,7 @@ impl GameConfig {
 
 These field names match `resources/config.json`. The other files are `tetrominoes.json` and `wall_kicks.json`. Private `Deserialize` structs convert the shape arrays and named kick tables into `PieceDefinition` values. The unrelated `garbage_queue_time` field is ignored for Part 1.
 
-Validation covers the seven required kinds, four rotations per kind, four distinct cells per shape, complete kick tables with matching candidate counts across rotations, valid seed data, and sensible numeric ranges. Array order in the kick lists is preserved. A malformed resource produces a short error and stops loading.
+File reads and JSON parsing use `unwrap()`, and required piece and kick entries use direct map indexing. Missing files, invalid JSON, or missing entries therefore panic. There are no additional checks for numeric ranges, duplicate cells, or kick-table lengths. Array order in the kick lists is preserved.
 
 For soft drop, first compare `gravity_decrease` with `gravity`. If the reduction is at least the gravity interval, return zero; otherwise, subtract normally. With the supplied values this changes the interval from 20 to 10 frames, matching the soft-drop fixtures. An effective interval of zero makes the single gravity attempt immediately due; it does not cause an inner fall loop. A `D` action is not a direct one-cell translation and does not permanently modify the config.
 
@@ -312,15 +309,12 @@ No custom randomizer trait is needed. The implementation uses the RNG crate's `S
 `game.rs` should read like the per-frame instructions in the README.
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GameStatus { Running, ToppedOut }
-
 pub struct Game {
     resources: Resources,
     bag: BagRandomizer<PieceKind>,
     active: Option<ActivePiece>,
     dead: DeadPiece,
-    status: GameStatus,
+    game_over: bool,
 }
 
 impl Game {
@@ -370,7 +364,7 @@ There are no custom traits in this design. Each module has one implementation, s
 | Randomizer | `SeedableRng` and the required version's slice-shuffling trait. |
 | CLI boundary | `std::error::Error`; `std::io::Write` for output. |
 
-For a program this size, `Box<dyn Error>` at the file/CLI boundary is enough. Add a specific error enum only if handling different error kinds becomes useful. Game actions themselves are not errors: an obstructed move simply returns `false`.
+`main` uses `Box<dyn Error>` for file-reading and output errors. Input parsing and resource loading panic on failures instead of returning errors. An obstructed game move simply returns `false`.
 
 ## 5. One frame, step by step
 
@@ -599,7 +593,7 @@ The top-out link explains partial lock-out in terms of a locked piece extending 
 
 There is no separate spawn-overlap loss rule in this implementation. With loss at `y >= height`, a continuing game has no locked cells in the spawn rows. The original proposal's concern about leaving occupancy in row 20 therefore no longer applies.
 
-The illustrative J JSON in the README contains repeated coordinates in some states and has a trailing comma. Treat it as an illustration of the layout, not the source of shape data. Load the actual supplied resource definitions during implementation and report malformed data rather than quietly repairing it. This appears to be an example-quality issue, not a hidden instruction.
+The illustrative J JSON in the README contains repeated coordinates in some states and has a trailing comma. Treat it as an illustration of the layout, not the source of shape data. Load the actual supplied resource definitions. This appears to be an example-quality issue, not a hidden instruction.
 
 ## 11. Sources and status
 

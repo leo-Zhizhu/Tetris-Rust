@@ -24,16 +24,25 @@ impl DeadPiece {
     }
 
     pub fn occupied(&self, x: usize, y: usize) -> bool {
-        self.rows.get(y).is_some_and(|row| row[x])
+        if y >= self.rows.len() {
+            return false;
+        }
+
+        self.rows[y][x]
     }
 
     pub fn can_place(&self, cells: &[Point; 4]) -> bool {
-        cells.iter().all(|cell| {
-            cell.x >= 0
-                && cell.x < self.width as i32
-                && cell.y >= 0
-                && !self.occupied(cell.x as usize, cell.y as usize)
-        })
+        for cell in cells {
+            if cell.x < 0 || cell.x >= self.width as i32 || cell.y < 0 {
+                return false;
+            }
+
+            if self.occupied(cell.x as usize, cell.y as usize) {
+                return false;
+            }
+        }
+
+        true
     }
 
     pub fn merge(&mut self, cells: &[Point; 4]) {

@@ -101,10 +101,14 @@ impl ActivePiece {
     }
 
     fn cells_at(&self, origin: Point, rotation: Rotation) -> [Point; 4] {
-        self.definition.states[rotation as usize].map(|offset| Point {
-            x: origin.x + offset.x,
-            y: origin.y + offset.y,
-        })
+        let mut cells = self.definition.states[rotation as usize];
+
+        for cell in &mut cells {
+            cell.x += origin.x;
+            cell.y += origin.y;
+        }
+
+        cells
     }
 
     pub fn can_move_down(&self, board: &DeadPiece) -> bool {
@@ -132,7 +136,9 @@ impl ActivePiece {
         let from = &self.definition.kick_offsets[self.rotation as usize];
         let to = &self.definition.kick_offsets[next as usize];
 
-        for (old_offset, new_offset) in from.iter().zip(to) {
+        for i in 0..from.len() {
+            let old_offset = from[i];
+            let new_offset = to[i];
             let origin = Point {
                 x: self.origin.x + old_offset.x - new_offset.x,
                 y: self.origin.y + old_offset.y - new_offset.y,

@@ -1,4 +1,4 @@
-use std::{error::Error, ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, path::PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -17,35 +17,31 @@ pub struct CliOptions {
     pub resources_dir: PathBuf,
 }
 
-pub fn parse_args(mut args: impl Iterator<Item = OsString>) -> Result<CliOptions, Box<dyn Error>> {
+pub fn parse_args(mut args: impl Iterator<Item = OsString>) -> CliOptions {
     let mut inputs_path = None;
     let mut resources_dir = None;
 
     while let Some(flag) = args.next() {
-        let destination = match flag.to_str() {
-            Some("--simulate-inputs-single-player") => &mut inputs_path,
-            Some("--resources") => &mut resources_dir,
-            _ => return Err("unknown argument".into()),
-        };
-        if destination.is_some() {
-            return Err("argument repeated".into());
+        match flag.to_str().unwrap() {
+            "--simulate-inputs-single-player" => {
+                inputs_path = Some(PathBuf::from(args.next().unwrap()));
+            }
+            "--resources" => {
+                resources_dir = Some(PathBuf::from(args.next().unwrap()));
+            }
+            _ => panic!("unknown argument"),
         }
-        let value = args.next().ok_or("missing path")?;
-        if value.to_string_lossy().starts_with("--") {
-            return Err("missing path".into());
-        }
-        *destination = Some(PathBuf::from(value));
     }
 
-    Ok(CliOptions {
-        inputs_path: inputs_path.ok_or("missing input file")?,
-        resources_dir: resources_dir.ok_or("missing resources directory")?,
-    })
+    CliOptions {
+        inputs_path: inputs_path.unwrap(),
+        resources_dir: resources_dir.unwrap(),
+    }
 }
 
-pub fn parse_actions(bytes: &[u8]) -> Result<Vec<Action>, Box<dyn Error>> {
+pub fn parse_actions(bytes: &[u8]) -> Vec<Action> {
     let mut actions = Vec::new();
-    for (index, &byte) in bytes.iter().enumerate() {
+    for &byte in bytes {
         let action = match byte {
             b'C' => Action::RotateClockwise,
             b'W' => Action::RotateCounterclockwise,
@@ -55,11 +51,9 @@ pub fn parse_actions(bytes: &[u8]) -> Result<Vec<Action>, Box<dyn Error>> {
             b'H' => Action::HardDrop,
             b'E' => Action::Wait,
             byte if byte.is_ascii_whitespace() => continue,
-            _ => {
-                return Err(format!("invalid action at position {}", index + 1).into());
-            }
+            _ => panic!("invalid action"),
         };
         actions.push(action);
     }
-    Ok(actions)
+    actions
 }

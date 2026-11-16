@@ -6,18 +6,12 @@ use crate::{
     resources::Resources,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GameStatus {
-    Running,
-    ToppedOut,
-}
-
 pub struct Game {
     resources: Resources,
     bag: BagRandomizer<PieceKind>,
     active: Option<ActivePiece>,
     dead: DeadPiece,
-    status: GameStatus,
+    game_over: bool,
 }
 
 impl Game {
@@ -30,14 +24,14 @@ impl Game {
             bag,
             active: None,
             dead,
-            status: GameStatus::Running,
+            game_over: false,
         };
         game.spawn_current();
         game
     }
 
     pub fn is_over(&self) -> bool {
-        self.status == GameStatus::ToppedOut
+        self.game_over
     }
 
     pub fn active(&self) -> Option<&ActivePiece> {
@@ -102,12 +96,11 @@ impl Game {
             .cells();
         self.dead.merge(&cells);
 
-        if cells
-            .iter()
-            .any(|cell| cell.y >= self.resources.config.height as i32)
-        {
-            self.status = GameStatus::ToppedOut;
-            return;
+        for cell in cells {
+            if cell.y >= self.resources.config.height as i32 {
+                self.game_over = true;
+                return;
+            }
         }
 
         self.dead.clear_full_rows();

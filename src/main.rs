@@ -11,11 +11,11 @@ use p5_tetris::{game::Game, input, render, resources::Resources};
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
 
-    let options = input::parse_args(args.into_iter())?;
-    let resources = Resources::load(&options.resources_dir)?;
+    let options = input::parse_args(args.into_iter());
+    let resources = Resources::load(&options.resources_dir);
     let bytes = fs::read(&options.inputs_path)
         .map_err(|error| format!("{}: {error}", options.inputs_path.display()))?;
-    let actions = input::parse_actions(&bytes)?;
+    let actions = input::parse_actions(&bytes);
     let mut game = Game::new(resources);
 
     for action in actions {

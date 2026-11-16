@@ -23,7 +23,7 @@ Expected: eight tests end in `ok`, followed by a summary containing:
 test result: ok. 8 passed; 0 failed
 ```
 
-These cover controls, gravity/locking timing, soft-drop intervals, wall kicks, row clearing, and top-out. Every test block is commented; [tests/README.md](tests/README.md) explains why each test is included.
+These cover controls, gravity/locking timing, soft-drop intervals, wall kicks, row clearing, and top-out. [tests/README.md](tests/README.md) explains why each test is included.
 
 ## 3. Run the supplied single-player suite
 
@@ -34,7 +34,7 @@ cargo test --test cli
 Expected output includes:
 
 ```text
-test supplied_single_player_fixtures ... ok
+test supplied_single_player_input ... ok
 ```
 
 The summary says `1 passed; 0 failed`, because one Rust test compares the output strings for all 12 input/output pairs.
