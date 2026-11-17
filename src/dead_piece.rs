@@ -1,5 +1,6 @@
 use crate::piece::Point;
 
+#[derive(Clone)]
 pub struct DeadPiece {
     width: usize,
     height: usize,
@@ -89,5 +90,15 @@ impl DeadPiece {
         }
 
         cleared_rows
+    }
+
+    pub fn from_grid(grid: &[[bool; 10]; 20]) -> Self {
+        let mut board = Self::new(10, 20);
+        for row in 0..20 {
+            for col in 0..10 {
+                board.rows[row][col] = grid[row][col];
+            }
+        }
+        board
     }
 }

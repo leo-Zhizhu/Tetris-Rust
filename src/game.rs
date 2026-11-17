@@ -12,6 +12,7 @@ pub struct Game {
     active: Option<ActivePiece>,
     dead: DeadPiece,
     game_over: bool,
+    lines_cleared: usize,
 }
 
 impl Game {
@@ -25,9 +26,14 @@ impl Game {
             active: None,
             dead,
             game_over: false,
+            lines_cleared: 0,
         };
         game.spawn_current();
         game
+    }
+
+    pub fn lines_cleared(&self) -> usize {
+        self.lines_cleared
     }
 
     pub fn is_over(&self) -> bool {
@@ -103,7 +109,7 @@ impl Game {
             }
         }
 
-        self.dead.clear_full_rows();
+        self.lines_cleared += self.dead.clear_full_rows();
         self.bag.next();
         self.spawn_current();
     }

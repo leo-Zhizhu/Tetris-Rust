@@ -5,3 +5,4 @@ pub mod piece;
 pub mod randomizer;
 pub mod render;
 pub mod resources;
+pub mod bot;

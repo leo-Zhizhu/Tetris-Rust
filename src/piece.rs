@@ -63,6 +63,7 @@ pub struct PieceDefinition {
     pub kick_offsets: [Vec<Point>; 4],
 }
 
+#[derive(Clone)]
 pub struct ActivePiece {
     kind: PieceKind,
     definition: PieceDefinition,
@@ -90,6 +91,14 @@ impl ActivePiece {
             frames_since_fall: 0,
             rotations_since_descent: 0,
         }
+    }
+
+    pub fn origin(&self) -> Point {
+        self.origin
+    }
+
+    pub fn rotation(&self) -> Rotation {
+        self.rotation
     }
 
     pub fn kind(&self) -> PieceKind {
@@ -176,5 +185,16 @@ impl ActivePiece {
     pub fn record_fall(&mut self) {
         self.frames_since_fall = 0;
         self.rotations_since_descent = 0;
+    }
+
+    pub fn from_pose(kind: PieceKind, definition: PieceDefinition, origin: Point, rotation: Rotation) -> Self {
+        Self {
+            kind,
+            definition,
+            origin,
+            rotation,
+            frames_since_fall: 0,
+            rotations_since_descent: 0,
+        }
     }
 }
