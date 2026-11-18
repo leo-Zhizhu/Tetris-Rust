@@ -1,8 +1,50 @@
-# Crucial Part 1 tests
+# Tests
 
-Run `cargo test` from the project root. There are **9 tests**: eight focused gameplay tests and one CLI test that runs all **12 supplied single-player cases**.
+Run `cargo test` from the project root. There are **24 correctness tests**: eight bot unit tests, seven bot integration tests, eight gameplay tests, and one CLI test that runs all **12 supplied single-player cases**. One additional speed comparison is ignored unless explicitly requested.
 
 The suite focuses on correct gameplay with valid inputs. The descriptions below explain what each test checks. The supplied resources and expected-output files are never modified.
+
+## Bot search and worker tests
+
+The unit tests are in `src/bot/tests.rs` so they can check the private search and controller without expanding the public bot interface.
+
+```sh
+cargo test --lib
+```
+
+Expected summary: `8 passed; 0 failed; 1 ignored`.
+
+| Test | What it checks |
+| --- | --- |
+| `counterclockwise_shortcut` | A hardcoded J-piece well is filled using `W,H`, instead of three clockwise turns. |
+| `move_before_rotating` | A floor and roof initially block both I-piece rotations. The search moves left before rotating and clears four rows. |
+| `descend_then_slide_into_gap` | An O descends through an opening and slides left under a roof. Every action is replayed, and the final board is compared with three explicit rows. |
+| `frame_rules_include_gravity_and_locking` | Ten soft-drop frames cause one fall; a sideways move does not reset the grounded piece's 15-frame lock timer. |
+| `search_stops_at_timed_lock` | A grounded piece with 14 elapsed frames locks on the next action. The returned path ends there. |
+| `search_checks_top_out_before_row_clears` | A vertical I completes two rows but extends above the board. The search rejects this landing before clearing those rows. |
+| `tracked_timer_and_saved_path_match_game` | The bot consumes a saved path, preserves its hidden timer across calls, matches the real game through gravity and soft drop, and resets at the next spawn. |
+| `parallel_search_matches_sequential` | The same jobs produce the same path and score in both modes. Two searches keep the same four thread IDs, and dropping the pool finishes cleanup. |
+
+## Bot integration tests
+
+```sh
+cargo test --test bot_test
+cargo test --release --test bot_test simple_bot_test -- --exact --nocapture
+```
+
+The seven tests in `tests/bot_test.rs` cover the required public interface, game snapshots, scoring, simulation without changing the real board, board conversion, piece conversion, and a complete 40-line game.
+
+`simple_bot_test` uses only the supplied seed. It stops at 40 cleared lines, game over, or 20,000 frames, then asserts that at least 40 lines were cleared. The current result is 40 lines in 428 frames. Elapsed time depends on the machine and whether this is a debug or release build.
+
+## Optional speed comparison
+
+```sh
+cargo test --release --lib compare_search_speed -- --ignored --nocapture
+```
+
+This runs the same bounded search sequentially and on four persistent workers. Both versions play three complete games using the supplied seed, and every returned action must match. It prints the median time for each version, including pool creation and shutdown. It does not assert a time threshold, since machine load varies.
+
+The bot searches at most 20,000 states per job, with paths up to 300 frames. It keeps a chosen path until the piece locks. These are search limits, not changes to the game's movement rules. Four workers share one job queue and one result queue; their local search storage is reused between jobs.
 
 ## Focused gameplay tests
 

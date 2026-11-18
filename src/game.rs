@@ -3,7 +3,7 @@ use crate::{
     input::Action,
     piece::{ActivePiece, PieceKind, Turn},
     randomizer::BagRandomizer,
-    resources::Resources,
+    resources::{GameConfig, Resources},
 };
 
 pub struct Game {
@@ -52,46 +52,10 @@ impl Game {
         if self.is_over() {
             return;
         }
-        let piece = self.active.as_mut().expect("panic! no active piece");
-        match action {
-            Action::HardDrop => {
-                piece.hard_drop(&self.dead);
-                self.finish_lock();
-                return;
-            }
-            Action::RotateClockwise => {
-                piece.try_rotate(Turn::Clockwise, &self.dead);
-            }
-            Action::RotateCounterclockwise => {
-                piece.try_rotate(Turn::Counterclockwise, &self.dead);
-            }
-            Action::Left => {
-                piece.try_translate(-1, 0, &self.dead);
-            }
-            Action::Right => {
-                piece.try_translate(1, 0, &self.dead);
-            }
-            Action::SoftDrop | Action::Wait => {}
-        }
-
-        piece.advance_clock();
-        let gravity = self
-            .resources
-            .config
-            .gravity_for_frame(action == Action::SoftDrop);
-        if piece.frames_since_fall() >= gravity && piece.try_translate(0, -1, &self.dead) {
-            piece.record_fall();
-        }
-        if self.lock_due() {
+        let piece = self.active.as_mut().expect("no active piece");
+        if step_piece(piece, &self.dead, &self.resources.config, action) {
             self.finish_lock();
         }
-    }
-
-    fn lock_due(&self) -> bool {
-        let piece = self.active.as_ref().expect("panic! no active piece");
-
-        !piece.can_move_down(&self.dead)
-            && piece.frames_since_fall() >= self.resources.config.lock_delay
     }
 
     fn finish_lock(&mut self) {
@@ -123,4 +87,46 @@ impl Game {
             self.resources.config.height,
         ));
     }
+}
+
+// Advance exactly one frame. Both the game and the bot's search use this
+// function, so a simulated action has the same gravity and lock timing.
+// Returning true asks the caller to merge this piece into its board.
+pub(crate) fn step_piece(
+    piece: &mut ActivePiece,
+    board: &DeadPiece,
+    config: &GameConfig,
+    action: Action,
+) -> bool {
+    match action {
+        Action::HardDrop => {
+            piece.hard_drop(board);
+            return true;
+        }
+        Action::RotateClockwise => {
+            piece.try_rotate(Turn::Clockwise, board);
+        }
+        Action::RotateCounterclockwise => {
+            piece.try_rotate(Turn::Counterclockwise, board);
+        }
+        Action::Left => {
+            piece.try_translate(-1, 0, board);
+        }
+        Action::Right => {
+            piece.try_translate(1, 0, board);
+        }
+        Action::SoftDrop | Action::Wait => {}
+    }
+
+    // An ignored movement still consumes a frame. Soft drop changes this
+    // frame's gravity interval; it does not immediately move down one row.
+    piece.advance_clock();
+    let gravity = config.gravity_for_frame(action == Action::SoftDrop);
+    if piece.frames_since_fall() >= gravity && piece.try_translate(0, -1, board) {
+        piece.record_fall();
+    }
+
+    // Only a grounded piece can lock. Check after gravity, since a successful
+    // fall resets the timer. Horizontal moves and rotations do not reset it.
+    !piece.can_move_down(board) && piece.frames_since_fall() >= config.lock_delay
 }
