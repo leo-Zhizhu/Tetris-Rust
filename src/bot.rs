@@ -1,4 +1,7 @@
-use std::path::Path;
+use std::{
+    path::Path,
+    thread,
+};
 use crate::{
     game::Game, 
     piece::{PieceKind, Turn},
@@ -134,19 +137,37 @@ impl SinglePlayerBot for SimpleBot {
         let board = board_state.get_dead_piece();
         let piece = board_state.get_active_piece(&self.resources);
         let candidates = get_candidates(&piece, &board);
-        let mut best_key = (i32::MAX, usize::MAX);
-        let mut best_actions = Vec::new();
-        for candidate in candidates {
-            let Some(score) = landing_score(&candidate.piece, &board) else {
-                continue;
-            };
-            let key = (score, candidate.actions.len());
-            if key < best_key {
-                best_key = key;
-                best_actions = candidate.actions;
+        let worker_count = 4.min(candidates.len());
+        let chunk_size = candidates.len().div_ceil(worker_count);
+        let best = thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for (chunk_index, chunk) in candidates.chunks(chunk_size).enumerate() {
+                let board_ref = &board;
+                let start_index = chunk_index * chunk_size;
+                handles.push(scope.spawn(move || {
+                    let mut local_best = None;
+                    for (offset, candidate) in chunk.iter().enumerate() {
+                        let Some(score) = landing_score(&candidate.piece, board_ref) 
+                        else {
+                            continue;
+                        };
+                        let key = (score, candidate.actions.len(), start_index + offset);
+                        local_best = Some(match local_best {
+                            Some(previous) => key.min(previous),
+                            None => key
+                        });
+                    }
+                    local_best
+                }));
             }
+            handles.into_iter().filter_map(|handle| {
+                handle.join().expect("need result from worker")
+            }).min()
+        });
+        match best {
+            Some((_, _, index)) => candidates[index].actions.first().copied().unwrap_or(TetrisAction::H),
+            None => TetrisAction::H,
         }
-        best_actions.first().copied().unwrap_or(TetrisAction::H)
     }
 }
 
