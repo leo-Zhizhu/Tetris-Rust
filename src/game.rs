@@ -48,13 +48,27 @@ impl Game {
         &self.dead
     }
 
-    pub fn step(&mut self, action: Action) {
+    /// Advances one frame and returns whether a piece locked this frame.
+    /// A lock that tops out still returns true; later frames return false.
+    pub fn step(&mut self, action: Action) -> bool {
+        if self.is_over() {
+            return false;
+        }
+        let piece = self.active.as_mut().expect("no active piece");
+        let locked = step_piece(piece, &self.dead, &self.resources.config, action);
+        if locked {
+            self.finish_lock();
+        }
+        locked
+    }
+
+    pub(crate) fn add_garbage(&mut self, rows: usize, hole: usize) {
         if self.is_over() {
             return;
         }
-        let piece = self.active.as_mut().expect("no active piece");
-        if step_piece(piece, &self.dead, &self.resources.config, action) {
-            self.finish_lock();
+        if self.dead.add_garbage(rows, hole) {
+            self.game_over = true;
+            self.active = None;
         }
     }
 

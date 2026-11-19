@@ -59,6 +59,16 @@ impl DeadPiece {
         }
     }
 
+    /// Adds an aligned batch at the bottom and reports whether it tops out.
+    pub(crate) fn add_garbage(&mut self, rows: usize, hole: usize) -> bool {
+        let mut garbage = vec![true; self.width];
+        garbage[hole] = false;
+        self.rows.splice(0..0, vec![garbage; rows]);
+        self.rows[self.height..]
+            .iter()
+            .any(|row| row.iter().any(|&occupied| occupied))
+    }
+
     pub fn clear_full_rows(&mut self) -> usize {
         let row_count = self.rows.len();
         let mut cleared_rows = 0;

@@ -30,3 +30,15 @@ pub fn serialize(game: &Game) -> String {
     }
     output
 }
+
+pub fn serialize_multiplayer(games: &[Game; 2]) -> String {
+    let [left, right] = games.each_ref().map(serialize);
+    let mut output = String::new();
+    for (a, b) in left.lines().zip(right.lines()) {
+        output.push_str(a);
+        output.push_str("    ");
+        output.push_str(b);
+        output.push('\n');
+    }
+    output
+}

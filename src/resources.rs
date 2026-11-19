@@ -12,6 +12,7 @@ pub struct GameConfig {
     pub gravity_decrease: u32,
     pub lock_delay: u32,
     pub random_seed: [u8; 16],
+    pub garbage_queue_time: u32,
 }
 
 impl GameConfig {

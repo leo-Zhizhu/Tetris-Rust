@@ -67,7 +67,7 @@ impl SimulationControl {
         }
     }
 
-    pub fn search(&mut self, context: Arc<SearchContext>) -> Option<SearchResult> {
+    pub fn search(&self, context: Arc<SearchContext>) -> Option<SearchResult> {
         let mut results = Vec::new();
         for number in 0..ACTIONS.len() {
             results.push(None);

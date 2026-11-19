@@ -1,5 +1,11 @@
 use std::{path::Path, sync::Arc};
 
+use crate::{
+    game::step_piece,
+    piece::{PieceKind, Point, Rotation},
+    render,
+};
+
 use super::{
     search::{ACTIONS, SearchContext, SearchWorker, choose_result},
     simulation::SimulationControl,
@@ -59,7 +65,7 @@ fn parallel_search_matches_sequential() {
 
     // Two searches on one controller must give the same complete path and
     // score as running those exact seven jobs sequentially.
-    let mut pool = SimulationControl::new(Arc::clone(&resources));
+    let pool = SimulationControl::new(Arc::clone(&resources));
     let workers = pool.worker_ids();
     assert_eq!(workers.len(), 4);
     assert_eq!(pool.search(Arc::clone(&context)), expected);
@@ -70,45 +76,78 @@ fn parallel_search_matches_sequential() {
 }
 
 #[test]
-fn tracked_timer_and_saved_path_match_game() {
+fn updates_and_saved_path_match_game() {
     let mut game = Game::new(Resources::load(Path::new("resources")));
-    let mut bot = SimpleBot::new();
-    // Give the bot a valid path that crosses a gravity fall and a soft drop.
-    // It must keep its counters and consume the saved path one frame at a time.
-    bot.actions = vec![TetrisAction::E; 20];
-    for _ in 0..10 {
-        bot.actions.push(TetrisAction::D);
-    }
-    bot.actions.push(TetrisAction::L);
-    bot.actions.push(TetrisAction::H);
+    let mut bot = SimpleBot::new(Path::new("resources"));
+    // Exercise gravity, soft drop, locking, and spawning along a saved path.
+    let mut path = vec![TetrisAction::E; 20];
+    path.extend([TetrisAction::D; 10]);
+    path.extend([TetrisAction::L, TetrisAction::H]);
+    *bot.actions.get_mut() = path.into();
 
-    for _ in 0..31 {
-        let state = BoardState::from_game(&game).unwrap();
-        let action = bot.get_move(&state);
+    for _ in 0..32 {
+        let before = render::serialize(&bot.game);
+        let timer = bot.game.active().unwrap().frames_since_fall();
+        let action = bot.get_move();
+        assert_eq!(bot.get_move(), action);
+        assert_eq!(render::serialize(&bot.game), before);
+        assert_eq!(bot.game.active().unwrap().frames_since_fall(), timer);
         game.step(action.into());
-        let predicted = bot.predicted_piece.as_ref().unwrap();
-        let actual = game.active().unwrap();
-        assert_eq!(predicted.cells(), actual.cells());
-        assert_eq!(predicted.frames_since_fall(), actual.frames_since_fall());
+        bot.update_with(action);
+        assert_eq!(render::serialize(&bot.game), render::serialize(&game));
+        assert_eq!(
+            bot.game.active().unwrap().frames_since_fall(),
+            game.active().unwrap().frames_since_fall()
+        );
     }
-    assert_eq!(game.active().unwrap().origin(), Point { x: 3, y: 18 });
-    assert_eq!(game.active().unwrap().frames_since_fall(), 1);
-    let state = BoardState::from_game(&game).unwrap();
-    assert_eq!(bot.get_move(&state), TetrisAction::H);
-    game.step(Action::HardDrop);
-    assert!(bot.predicted_piece.is_none());
-    assert!(bot.actions.is_empty());
+    assert!(bot.actions.borrow().is_empty());
+    assert_eq!(bot.game.active().unwrap().frames_since_fall(), 0);
 
-    // The successor starts with a fresh timer; the old path is finished.
-    bot.actions = vec![TetrisAction::E, TetrisAction::H];
-    let state = BoardState::from_game(&game).unwrap();
-    assert_eq!(bot.get_move(&state), TetrisAction::E);
+    // Applying a different action must invalidate the cached plan.
+    *bot.actions.get_mut() = VecDeque::from([TetrisAction::L, TetrisAction::H]);
+    bot.update_with(TetrisAction::R);
+    game.step(Action::Right);
+    assert!(bot.actions.borrow().is_empty());
+    assert_eq!(render::serialize(&bot.game), render::serialize(&game));
+    let action = bot.get_move();
+    bot.update_with(action);
+    game.step(action.into());
+    assert_eq!(render::serialize(&bot.game), render::serialize(&game));
+
+    // Updates also work without a preceding get_move, through top-out.
+    while !game.is_over() {
+        game.step(Action::HardDrop);
+        bot.update_with(TetrisAction::H);
+    }
+    assert!(bot.game.is_over());
+    assert_eq!(bot.get_move(), TetrisAction::E);
+    bot.update_with(TetrisAction::L);
+    assert_eq!(render::serialize(&bot.game), render::serialize(&game));
+}
+
+#[test]
+fn bot_uses_supplied_resources() {
+    let dir = std::env::temp_dir().join(format!("p5-tetris-bot-resources-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for file in ["tetrominoes.json", "wall_kicks.json"] {
+        std::fs::copy(Path::new("resources").join(file), dir.join(file)).unwrap();
+    }
+    let mut config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string("resources/config.json").unwrap()).unwrap();
+    config["gravity"] = 1.into();
+    config["random_seed"] = serde_json::json!([7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7]);
+    std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
+    let mut game = Game::new(Resources::load(&dir));
+    let mut bot = SimpleBot::new(&dir);
+    std::fs::remove_dir_all(&dir).unwrap();
+    bot.update_with(TetrisAction::E);
     game.step(Action::Wait);
-    assert_eq!(bot.predicted_piece.as_ref().unwrap().frames_since_fall(), 1);
-    assert_eq!(
-        bot.predicted_piece.as_ref().unwrap().cells(),
-        game.active().unwrap().cells()
-    );
+    assert_eq!(bot.game.active().unwrap().origin().y, 19);
+    assert_eq!(render::serialize(&bot.game), render::serialize(&game));
+    let action = bot.get_move();
+    bot.update_with(action);
+    game.step(action.into());
+    assert_eq!(render::serialize(&bot.game), render::serialize(&game));
 }
 
 #[test]

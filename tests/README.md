@@ -1,6 +1,6 @@
 # Tests
 
-Run `cargo test` from the project root. There are **24 correctness tests**: eight bot unit tests, seven bot integration tests, eight gameplay tests, and one CLI test that runs all **12 supplied single-player cases**. One additional speed comparison is ignored unless explicitly requested.
+Run `cargo test` from the project root. There are **29 correctness tests**: nine bot unit tests, six multiplayer unit tests, four bot integration tests, eight gameplay tests, and two CLI tests covering all **12 supplied single-player cases** and bot match replay. One additional speed comparison is ignored unless explicitly requested.
 
 The suite focuses on correct gameplay with valid inputs. The descriptions below explain what each test checks. The supplied resources and expected-output files are never modified.
 
@@ -9,10 +9,10 @@ The suite focuses on correct gameplay with valid inputs. The descriptions below 
 The unit tests are in `src/bot/tests.rs` so they can check the private search and controller without expanding the public bot interface.
 
 ```sh
-cargo test --lib
+cargo test --lib bot::tests
 ```
 
-Expected summary: `8 passed; 0 failed; 1 ignored`.
+Expected summary: `9 passed; 0 failed; 1 ignored`.
 
 | Test | What it checks |
 | --- | --- |
@@ -22,17 +22,18 @@ Expected summary: `8 passed; 0 failed; 1 ignored`.
 | `frame_rules_include_gravity_and_locking` | Ten soft-drop frames cause one fall; a sideways move does not reset the grounded piece's 15-frame lock timer. |
 | `search_stops_at_timed_lock` | A grounded piece with 14 elapsed frames locks on the next action. The returned path ends there. |
 | `search_checks_top_out_before_row_clears` | A vertical I completes two rows but extends above the board. The search rejects this landing before clearing those rows. |
-| `tracked_timer_and_saved_path_match_game` | The bot consumes a saved path, preserves its hidden timer across calls, matches the real game through gravity and soft drop, and resets at the next spawn. |
+| `updates_and_saved_path_match_game` | Repeated move reads leave the game unchanged; updates track gravity, soft drop, locking, spawning, unexpected actions, and top-out. |
+| `bot_uses_supplied_resources` | The bot loads a separate resources directory with a changed gravity and seed, then stays in sync with an external game. |
 | `parallel_search_matches_sequential` | The same jobs produce the same path and score in both modes. Two searches keep the same four thread IDs, and dropping the pool finishes cleanup. |
 
 ## Bot integration tests
 
 ```sh
-cargo test --test bot_test
-cargo test --release --test bot_test simple_bot_test -- --exact --nocapture
+cargo test --test tests
+cargo test --release --test tests simple_bot_test -- --exact --nocapture
 ```
 
-The seven tests in `tests/bot_test.rs` cover the required public interface, game snapshots, scoring, simulation without changing the real board, board conversion, piece conversion, and a complete 40-line game.
+The four tests in `tests/tests.rs` cover both required public bot interfaces, scoring, and a complete 40-line game. The obsolete snapshot-conversion and direct-landing helper tests were removed with those helpers.
 
 `simple_bot_test` uses only the supplied seed. It stops at 40 cleared lines, game over, or 20,000 frames, then asserts that at least 40 lines were cleared. The current result is 40 lines in 428 frames. Elapsed time depends on the machine and whether this is a debug or release build.
 
@@ -45,6 +46,16 @@ cargo test --release --lib compare_search_speed -- --ignored --nocapture
 This runs the same bounded search sequentially and on four persistent workers. Both versions play three complete games using the supplied seed, and every returned action must match. It prints the median time for each version, including pool creation and shutdown. It does not assert a time threshold, since machine load varies.
 
 The bot searches at most 20,000 states per job, with paths up to 300 frames. It keeps a chosen path until the piece locks. These are search limits, not changes to the game's movement rules. Four workers share one job queue and one result queue; their local search storage is reused between jobs.
+
+## Multiplayer garbage rules
+
+```sh
+cargo test --lib multiplayer::tests
+```
+
+The six tests in `src/multiplayer/tests.rs` check line-clear attacks, oldest-first cancellation before application, simultaneous attacks, queue expiry and lock gating, one random draw per aligned batch with independent player RNGs, timed locks, and top-out. The CLI suite also runs good-bot in both player slots, checks who topped out, and compares each match with its replay.
+
+Expected summary: `6 passed; 0 failed`.
 
 ## Focused gameplay tests
 
@@ -96,8 +107,8 @@ The test lists the 12 case names directly and uses simple relative paths. For ea
 | `start-soft-drop-but-stop` | Returning to wait actions restores ordinary gravity. |
 | `topped-out` | The losing piece remains on the board, no successor is drawn, and trailing moves are ignored. |
 
-Expected summary: `test result: ok. 1 passed; 0 failed`. Cargo reports one test because one Rust test function loops over the 12 files.
+Expected summary: `test result: ok. 2 passed; 0 failed`. One test loops over all 12 input files and the other checks bot matches.
 
 Basic movement, hard drops, normal soft drops, seeded spawning, and board serialization already have complete supplied examples. Redundant focused tests for those same scenarios were removed. The remaining focused tests check boundaries and interactions that the supplied final boards do not isolate.
 
-The original `runt cli-tests` configuration also includes multiplayer cases. Use these Cargo test suites to check Part 1 alone.
+The original `runt cli-tests` configuration also includes multiplayer cases. Its basic multiplayer fixture expects garbage during a wait-only trace. The updated README applies expired garbage only after a lock.

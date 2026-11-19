@@ -51,7 +51,7 @@ fn gravity_and_lock() {
     wait(&mut game, 19);
     assert!(!game.is_over());
     assert_eq!(game.active().unwrap().cells(), initial);
-    game.step(Action::Wait);
+    assert!(!game.step(Action::Wait));
     // The first piece is L. One fall moves its origin from (4, 20) to (4, 19).
     assert_eq!(
         game.active().unwrap().cells(),
@@ -71,10 +71,13 @@ fn gravity_and_lock() {
     assert_eq!(game.active().unwrap().kind(), PieceKind::L);
     assert!(!game.dead().occupied(3, 0));
 
-    game.step(Action::Wait);
+    assert!(game.step(Action::Wait));
     assert!(game.dead().occupied(3, 0));
     assert_eq!(game.active().unwrap().kind(), PieceKind::T);
     assert_eq!(game.active().unwrap().frames_since_fall(), 0);
+
+    // A hard drop also reports a lock immediately.
+    assert!(game.step(Action::HardDrop));
 }
 
 #[test]
@@ -273,7 +276,7 @@ fn top_out() {
     data.config.width = 3;
     data.config.height = 1;
     let mut game = Game::new(data);
-    game.step(Action::HardDrop);
+    assert!(game.step(Action::HardDrop));
 
     assert!(game.is_over());
     assert!(game.active().is_none());
@@ -289,7 +292,7 @@ fn top_out() {
         Action::RotateClockwise,
         Action::HardDrop,
     ] {
-        game.step(action);
+        assert!(!game.step(action));
         assert_eq!(render::serialize(&game), final_board);
     }
 }

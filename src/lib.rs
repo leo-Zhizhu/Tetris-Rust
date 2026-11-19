@@ -6,3 +6,4 @@ pub mod randomizer;
 pub mod render;
 pub mod resources;
 pub mod bot;
+pub mod multiplayer;
