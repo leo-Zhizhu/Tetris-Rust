@@ -187,7 +187,12 @@ impl ActivePiece {
         self.rotations_since_descent = 0;
     }
 
-    pub fn from_pose(kind: PieceKind, definition: PieceDefinition, origin: Point, rotation: Rotation) -> Self {
+    pub fn from_pose(
+        kind: PieceKind,
+        definition: PieceDefinition,
+        origin: Point,
+        rotation: Rotation,
+    ) -> Self {
         Self {
             kind,
             definition,

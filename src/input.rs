@@ -29,78 +29,86 @@ pub enum CliOptions {
     },
 }
 
-pub fn parse_args(mut args: impl Iterator<Item = OsString>) -> Result<CliOptions, String> {
+pub fn parse_args(mut args: impl Iterator<Item = OsString>) -> Result<CliOptions, &'static str> {
     let mut single = None;
     let mut multi = Vec::new();
     let mut resources = None;
     let mut list = false;
     let mut trace = false;
-    let mut players = [None, None];
-    let mut outputs = [None, None];
+    let mut player1 = None;
+    let mut player2 = None;
+    let mut output1 = None;
+    let mut output2 = None;
 
     while let Some(flag) = args.next() {
-        let mut value = || {
-            args.next()
-                .ok_or_else(|| format!("missing value for {}", flag.to_string_lossy()))
-        };
         match flag.to_str() {
-            Some("--resources") => resources = Some(PathBuf::from(value()?)),
+            Some("--resources") => {
+                resources = Some(PathBuf::from(args.next().ok_or("invalid input")?));
+            }
             Some("--list-bots") => list = true,
             Some("--trace-bot-run") => trace = true,
-            Some("--simulate-inputs-single-player") if single.is_none() => {
-                single = Some(PathBuf::from(value()?))
+            Some("--simulate-inputs-single-player") => {
+                single = Some(PathBuf::from(args.next().ok_or("invalid input")?));
             }
-            Some("--simulate-inputs-multi-player") => multi.push(PathBuf::from(value()?)),
-            Some("--p1" | "--p2") => {
-                players[usize::from(flag == "--p2")] =
-                    Some(value()?.into_string().map_err(|_| "invalid bot name")?);
+            Some("--simulate-inputs-multi-player") => {
+                multi.push(PathBuf::from(args.next().ok_or("invalid input")?));
             }
-            Some("--o1" | "--o2") => {
-                outputs[usize::from(flag == "--o2")] = Some(PathBuf::from(value()?))
+            Some("--p1") => {
+                player1 = Some(
+                    args.next()
+                        .ok_or("invalid input")?
+                        .into_string()
+                        .map_err(|_| "invalid input")?,
+                );
             }
-            _ => return Err(format!("unexpected argument: {}", flag.to_string_lossy())),
+            Some("--p2") => {
+                player2 = Some(
+                    args.next()
+                        .ok_or("invalid input")?
+                        .into_string()
+                        .map_err(|_| "invalid input")?,
+                );
+            }
+            Some("--o1") => {
+                output1 = Some(PathBuf::from(args.next().ok_or("invalid input")?));
+            }
+            Some("--o2") => {
+                output2 = Some(PathBuf::from(args.next().ok_or("invalid input")?));
+            }
+            _ => return Err("invalid input"),
         }
     }
 
-    let modes = [list, trace, single.is_some(), !multi.is_empty()];
-    if modes.into_iter().filter(|&selected| selected).count() != 1 {
-        return Err("select exactly one replay, bot list, or trace mode".into());
-    }
-    if !trace && (players.iter().any(Option::is_some) || outputs.iter().any(Option::is_some)) {
-        return Err("player and output flags require --trace-bot-run".into());
-    }
     if list {
         return Ok(CliOptions::ListBots);
     }
-    let resources = resources.ok_or("missing --resources")?;
+    let resources = resources.ok_or("invalid input")?;
     if trace {
-        let [Some(p1), Some(p2)] = players else {
-            return Err("expected --p1 and --p2".into());
-        };
-        let [Some(o1), Some(o2)] = outputs else {
-            return Err("expected --o1 and --o2".into());
-        };
-        if o1 == o2 {
-            return Err("trace outputs must be distinct".into());
-        }
         return Ok(CliOptions::Trace {
             resources,
-            players: [p1, p2],
-            outputs: [o1, o2],
+            players: [
+                player1.ok_or("invalid input")?,
+                player2.ok_or("invalid input")?,
+            ],
+            outputs: [
+                output1.ok_or("invalid input")?,
+                output2.ok_or("invalid input")?,
+            ],
         });
     }
     if let Some(input) = single {
         return Ok(CliOptions::Single { resources, input });
     }
+    if multi.len() != 2 {
+        return Err("invalid input");
+    }
     Ok(CliOptions::Multi {
         resources,
-        inputs: multi
-            .try_into()
-            .map_err(|_| "expected two multiplayer input files")?,
+        inputs: [multi[0].clone(), multi[1].clone()],
     })
 }
 
-pub fn parse_actions(bytes: &[u8]) -> Vec<Action> {
+pub fn parse_actions(bytes: &[u8]) -> Result<Vec<Action>, &'static str> {
     let mut actions = Vec::new();
     for &byte in bytes {
         let action = match byte {
@@ -112,9 +120,9 @@ pub fn parse_actions(bytes: &[u8]) -> Vec<Action> {
             b'H' => Action::HardDrop,
             b'E' => Action::Wait,
             byte if byte.is_ascii_whitespace() => continue,
-            _ => panic!("invalid action"),
+            _ => return Err("invalid input"),
         };
         actions.push(action);
     }
-    actions
+    Ok(actions)
 }

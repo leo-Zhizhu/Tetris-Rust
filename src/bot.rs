@@ -5,10 +5,8 @@ use crate::{
     piece::ActivePiece, resources::Resources,
 };
 
-mod search;
-mod simulation;
-#[cfg(test)]
-mod tests;
+pub mod search;
+pub mod simulation;
 
 use search::SearchContext;
 use simulation::SimulationControl;
@@ -48,18 +46,12 @@ pub trait SinglePlayerBot {
 }
 
 pub trait MultiPlayerBot {
-    /// Create a new bot given the path to the resources dir.
     fn new(config: &Path) -> Self
     where
         Self: Sized;
 
-    /// Gets an action to perform based on the board state. This should be called
-    /// every frame.
     fn get_move(&self) -> TetrisAction;
 
-    /// Updates the current bot state assuming the player plays a given action.
-    /// `p_actions[i]` is the action taken by player `i`. This should be called
-    /// every frame.
     fn update_with(&mut self, p_actions: &[TetrisAction]);
 }
 
@@ -105,7 +97,6 @@ impl MultiPlayerBot for GoodBot {
             locked_score(&candidate, board).unwrap_or(i32::MAX)
         };
 
-        // Keep a direct drop on ties. Move toward a strictly better column.
         let mut best = drop_score(piece.clone());
         let mut action = TetrisAction::H;
         for (dx, direction) in [(-1, TetrisAction::L), (1, TetrisAction::R)] {
@@ -135,6 +126,12 @@ pub struct SimpleBot {
     actions: RefCell<VecDeque<TetrisAction>>,
 }
 
+impl SimpleBot {
+    pub fn game(&self) -> &Game {
+        &self.game
+    }
+}
+
 impl SinglePlayerBot for SimpleBot {
     fn new(config: &Path) -> Self {
         let resources = Arc::new(Resources::load(config));
@@ -149,8 +146,7 @@ impl SinglePlayerBot for SimpleBot {
         let Some(piece) = self.game.active() else {
             return TetrisAction::E;
         };
-        // Cache the chosen path, but do not consume a move or advance time
-        // until the caller tells us which action was actually played.
+
         let mut actions = self.actions.borrow_mut();
         if actions.is_empty() {
             let context = Arc::new(SearchContext {
@@ -169,7 +165,6 @@ impl SinglePlayerBot for SimpleBot {
         self.game.step(action.into());
         let actions = self.actions.get_mut();
         if actions.pop_front() != Some(action) || self.game.is_over() {
-            // A different action invalidates the rest of the planned path.
             actions.clear();
         }
     }
@@ -207,7 +202,6 @@ fn locked_score(piece: &ActivePiece, board: &DeadPiece) -> Option<i32> {
     if !board.can_place(&cells) {
         return None;
     }
-    // The assignment checks top-out before clearing any completed rows.
     for cell in cells {
         if cell.y >= board.height() as i32 {
             return None;

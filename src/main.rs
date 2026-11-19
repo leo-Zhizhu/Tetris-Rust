@@ -16,20 +16,18 @@ use p5_tetris::{
 };
 use std::path::{Path, PathBuf};
 
-fn read_actions(path: &Path) -> Result<Vec<Action>, Box<dyn Error>> {
-    let bytes = fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    Ok(input::parse_actions(&bytes))
+fn read_actions(path: &Path) -> Result<Vec<Action>, &'static str> {
+    let bytes = fs::read(path).map_err(|_| "invalid input")?;
+    input::parse_actions(&bytes)
 }
 
-const BOT_NAMES: [&str; 2] = ["good-bot", "bad-bot"];
-
 fn make_bot(name: &str, config: &Path, player: usize) -> Result<Box<dyn MultiPlayerBot>, String> {
-    if name == BOT_NAMES[0] {
+    if name == "good-bot" {
         Ok(Box::new(GoodBot::for_player(config, player)))
-    } else if name == BOT_NAMES[1] {
+    } else if name == "bad-bot" {
         Ok(Box::new(BadBot::new(config)))
     } else {
-        Err(format!("unknown bot: {name}"))
+        Err("invalid input".into())
     }
 }
 
@@ -61,7 +59,7 @@ fn trace_match(
 fn run() -> Result<(), Box<dyn Error>> {
     let options = input::parse_args(env::args_os().skip(1))?;
     let output = match options {
-        CliOptions::ListBots => format!("{}\n", BOT_NAMES.join("\n")),
+        CliOptions::ListBots => String::from("good-bot\nbad-bot\n"),
         CliOptions::Trace {
             resources,
             players,

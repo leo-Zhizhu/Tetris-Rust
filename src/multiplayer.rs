@@ -5,9 +5,6 @@ use rand_xoshiro::Xoshiro128PlusPlus;
 
 use crate::{game::Game, input::Action, resources::Resources};
 
-#[cfg(test)]
-mod tests;
-
 struct Garbage {
     rows: usize,
     timer: u32,
@@ -44,11 +41,11 @@ impl MultiplayerGame {
             let before = self.games[i].lines_cleared();
             locked[i] = self.games[i].step(actions[i]);
             let cleared = self.games[i].lines_cleared() - before;
-            outgoing[i] = cleared.saturating_sub(1);
+            if cleared > 1 {
+                outgoing[i] = cleared - 1;
+            }
         }
 
-        // Cancel oldest incoming rows for both players before enqueueing
-        // anything new. Attacks sent this frame cannot cancel each other.
         for i in 0..2 {
             while outgoing[i] > 0 {
                 let Some(batch) = self.queues[i].front_mut() else {
@@ -77,13 +74,14 @@ impl MultiplayerGame {
                     && self.queues[i].front().is_some_and(|batch| batch.timer == 0)
                 {
                     let batch = self.queues[i].pop_front().unwrap();
-                    // Draw only when applying a batch, once for all its rows.
                     let hole = self.rngs[i].next_u32() as usize % self.games[i].dead().width();
                     self.games[i].add_garbage(batch.rows, hole);
                 }
             }
             for batch in &mut self.queues[i] {
-                batch.timer = batch.timer.saturating_sub(1);
+                if batch.timer > 0 {
+                    batch.timer -= 1;
+                }
             }
         }
     }

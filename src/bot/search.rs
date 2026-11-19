@@ -3,11 +3,7 @@ use std::collections::{HashMap, HashSet};
 use super::{TetrisAction, locked_score};
 use crate::{dead_piece::DeadPiece, game::step_piece, piece::ActivePiece, resources::GameConfig};
 
-const MAX_PATH_FRAMES: usize = 300;
-const MAX_SEARCH_STATES: usize = 20_000;
-
-// This order also breaks ties between equally good, equally short paths.
-pub(super) const ACTIONS: [TetrisAction; 7] = [
+pub const ACTIONS: [TetrisAction; 7] = [
     TetrisAction::H,
     TetrisAction::W,
     TetrisAction::C,
@@ -17,13 +13,13 @@ pub(super) const ACTIONS: [TetrisAction; 7] = [
     TetrisAction::E,
 ];
 
-pub(super) struct SearchContext {
+pub struct SearchContext {
     pub board: DeadPiece,
     pub piece: ActivePiece,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct SearchResult {
+pub struct SearchResult {
     pub score: i32,
     pub actions: Vec<TetrisAction>,
 }
@@ -42,9 +38,7 @@ struct SearchNode {
     frames: usize,
 }
 
-// Each worker owns these containers and reuses their capacity for later jobs.
-// Nothing here is shared with another worker or protected by a mutex.
-pub(super) struct SearchWorker {
+pub struct SearchWorker {
     nodes: Vec<SearchNode>,
     visited: HashSet<(i32, i32, usize, u32)>,
     scores: HashMap<(i32, i32, usize), Option<i32>>,
@@ -70,8 +64,6 @@ impl SearchWorker {
         self.scores.clear();
         let mut best = None;
 
-        // Jobs differ only in their first action. Each worker generates all
-        // further movements itself, including turns after moving or falling.
         let mut first_piece = context.piece.clone();
         if step_piece(
             &mut first_piece,
@@ -90,8 +82,6 @@ impl SearchWorker {
             frames: 1,
         });
 
-        // Appending to the vector and advancing this index gives us a simple
-        // breadth-first search: all short paths are visited before longer ones.
         let mut next = 0;
         while next < self.nodes.len() {
             let piece = self.nodes[next].piece.clone();
@@ -100,10 +90,8 @@ impl SearchWorker {
                 let mut moved = piece.clone();
                 let locked = step_piece(&mut moved, &context.board, config, action.into());
                 if locked {
-                    // A lock ends this branch. Do not generate a successor
-                    // piece or let later commands move the locked piece.
                     self.consider_landing(context, &moved, Some(next), action, frames, &mut best);
-                } else if frames < MAX_PATH_FRAMES && self.nodes.len() < MAX_SEARCH_STATES {
+                } else if frames < 300 && self.nodes.len() < 20000 {
                     let key = Self::state_key(&moved);
                     if self.visited.insert(key) {
                         self.nodes.push(SearchNode {
@@ -122,8 +110,6 @@ impl SearchWorker {
 
     fn state_key(piece: &ActivePiece) -> (i32, i32, usize, u32) {
         let origin = piece.origin();
-        // The timer changes what happens next, even at an identical position.
-        // The rotation counter is not used by the assignment's current rules.
         (
             origin.x,
             origin.y,
@@ -141,8 +127,6 @@ impl SearchWorker {
         frames: usize,
         best: &mut Option<SearchResult>,
     ) {
-        // Many paths lock in the same pose. Its score does not depend on the
-        // timer, so merge and clear rows only once per landing in this job.
         let origin = piece.origin();
         let key = (origin.x, origin.y, piece.rotation() as usize);
         let score = match self.scores.get(&key) {
@@ -165,8 +149,6 @@ impl SearchWorker {
             }
         }
 
-        // Follow parent indices backward, then reverse the path. This avoids
-        // copying a long action vector for every state we explore.
         let mut actions = vec![action];
         let mut previous = parent;
         while let Some(index) = previous {
@@ -178,9 +160,7 @@ impl SearchWorker {
     }
 }
 
-// Results arrive in an unpredictable order. The controller stores them by
-// job number first, so equal results always favor the same first action.
-pub(super) fn choose_result(results: Vec<Option<SearchResult>>) -> Option<SearchResult> {
+pub fn choose_result(results: Vec<Option<SearchResult>>) -> Option<SearchResult> {
     let mut best: Option<SearchResult> = None;
     for result in results {
         if let Some(result) = result {

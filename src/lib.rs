@@ -1,9 +1,9 @@
+pub mod bot;
 pub mod dead_piece;
 pub mod game;
 pub mod input;
+pub mod multiplayer;
 pub mod piece;
 pub mod randomizer;
 pub mod render;
 pub mod resources;
-pub mod bot;
-pub mod multiplayer;

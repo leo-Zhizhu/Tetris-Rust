@@ -48,8 +48,6 @@ impl Game {
         &self.dead
     }
 
-    /// Advances one frame and returns whether a piece locked this frame.
-    /// A lock that tops out still returns true; later frames return false.
     pub fn step(&mut self, action: Action) -> bool {
         if self.is_over() {
             return false;
@@ -103,10 +101,7 @@ impl Game {
     }
 }
 
-// Advance exactly one frame. Both the game and the bot's search use this
-// function, so a simulated action has the same gravity and lock timing.
-// Returning true asks the caller to merge this piece into its board.
-pub(crate) fn step_piece(
+pub fn step_piece(
     piece: &mut ActivePiece,
     board: &DeadPiece,
     config: &GameConfig,
@@ -132,15 +127,11 @@ pub(crate) fn step_piece(
         Action::SoftDrop | Action::Wait => {}
     }
 
-    // An ignored movement still consumes a frame. Soft drop changes this
-    // frame's gravity interval; it does not immediately move down one row.
     piece.advance_clock();
     let gravity = config.gravity_for_frame(action == Action::SoftDrop);
     if piece.frames_since_fall() >= gravity && piece.try_translate(0, -1, board) {
         piece.record_fall();
     }
 
-    // Only a grounded piece can lock. Check after gravity, since a successful
-    // fall resets the timer. Horizontal moves and rotations do not reset it.
     !piece.can_move_down(board) && piece.frames_since_fall() >= config.lock_delay
 }

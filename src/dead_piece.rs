@@ -34,7 +34,11 @@ impl DeadPiece {
 
     pub fn can_place(&self, cells: &[Point; 4]) -> bool {
         for cell in cells {
-            if cell.x < 0 || cell.x >= self.width as i32 || cell.y < 0 {
+            if cell.x < 0
+                || cell.x >= self.width as i32
+                || cell.y < 0
+                || cell.y >= (self.height + 2) as i32
+            {
                 return false;
             }
 
@@ -59,7 +63,6 @@ impl DeadPiece {
         }
     }
 
-    /// Adds an aligned batch at the bottom and reports whether it tops out.
     pub(crate) fn add_garbage(&mut self, rows: usize, hole: usize) -> bool {
         let mut garbage = vec![true; self.width];
         garbage[hole] = false;
